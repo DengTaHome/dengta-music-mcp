@@ -55,10 +55,7 @@ class Handler(BaseHTTPRequestHandler):
         expected = os.environ.get("MUSIC_WEB_TOKEN", "")
         if not expected:
             return True
-        if parse_cookies(self.headers.get("Cookie", "")).get("music_web") == expected:
-            return True
-        query = urllib.parse.parse_qs(parsed.query)
-        return parsed.path == "/" and query.get("token", [""])[0] == expected
+        return parse_cookies(self.headers.get("Cookie", "")).get("music_web") == expected
 
     def _forward(self):
         parsed = urllib.parse.urlsplit(self.path)
