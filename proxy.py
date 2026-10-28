@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Small reverse proxy: player UI on /, MCP on /mcp, admin cookie export."""
+"""Reverse proxy: gated player on /, MCP on /mcp, admin cookie export."""
 import http.client
-import json
 import os
 import sys
 import urllib.parse
@@ -14,16 +13,25 @@ def target_for(path):
     return ("127.0.0.1", 9090)
 
 
+def parse_cookies(header):
+    cookies = {}
+    for part in (header or "").split(";"):
+        if "=" in part:
+            key, value = part.strip().split("=", 1)
+            cookies[key] = value
+    return cookies
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
-    def _send_text(self, status, text, content_type="text/plain; charset=utf-8"):
+    def _send_text(self, status, text):
         data = text.encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Connection", "close")
         self.end_headers()
@@ -34,14 +42,23 @@ class Handler(BaseHTTPRequestHandler):
         if not expected or self.headers.get("X-Admin-Secret", "") != expected:
             self._send_text(403, "forbidden")
             return
-        path = "/app/server/.netease_cred"
+        path = "/app/server/data/.netease_cred"
         if not os.path.exists(path):
             self._send_text(404, "cookie-not-set")
             return
         raw = open(path, encoding="utf-8").read().strip()
         if raw.startswith("MUSIC_U="):
             raw = raw.split("=", 1)[1]
-        self._send_text(200, raw, "text/plain; charset=utf-8")
+        self._send_text(200, raw)
+
+    def _player_allowed(self, parsed):
+        expected = os.environ.get("MUSIC_WEB_TOKEN", "")
+        if not expected:
+            return True
+        if parse_cookies(self.headers.get("Cookie", "")).get("music_web") == expected:
+            return True
+        query = urllib.parse.parse_qs(parsed.query)
+        return parsed.path == "/" and query.get("token", [""])[0] == expected
 
     def _forward(self):
         parsed = urllib.parse.urlsplit(self.path)
@@ -51,11 +68,27 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/admin/cookie":
             self._admin_cookie()
             return
+
         if parsed.path.startswith("/mcp"):
             required = os.environ.get("MCP_TOKEN", "")
             if required and self.headers.get("Authorization", "") != "Bearer " + required:
                 self._send_text(401, "missing MCP bearer token")
                 return
+        else:
+            expected = os.environ.get("MUSIC_WEB_TOKEN", "")
+            if expected and not self._player_allowed(parsed):
+                query = urllib.parse.parse_qs(parsed.query)
+                if parsed.path == "/" and query.get("token", [""])[0] == expected:
+                    self.send_response(302)
+                    self.send_header("Location", "/#login")
+                    self.send_header("Set-Cookie", "music_web=%s; Path=/; HttpOnly; Secure; SameSite=Lax" % expected)
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    return
+                self._send_text(401, "open this player with its access link")
+                return
+
         host, port = target_for(parsed.path)
         length = int(self.headers.get("Content-Length") or "0")
         body = self.rfile.read(length) if length else None
@@ -64,6 +97,9 @@ class Handler(BaseHTTPRequestHandler):
             if key.lower() in ("host", "connection", "content-length", "transfer-encoding"):
                 continue
             headers[key] = value
+        if not parsed.path.startswith("/mcp"):
+            headers["X-Music-Gateway"] = os.environ.get("MUSIC_GATEWAY_TOKEN", "music-gateway")
+
         conn = http.client.HTTPConnection(host, port, timeout=120)
         try:
             conn.request(self.command, self.path, body=body, headers=headers)
