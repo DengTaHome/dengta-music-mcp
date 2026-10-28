@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Reverse proxy: gated player on /, MCP on /mcp, admin cookie export."""
 import http.client
+import re
+import socket
 import os
 import sys
 import urllib.parse
@@ -26,7 +28,9 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
-        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+        line = fmt % args
+        line = re.sub(r"([?&](?:token|key|auth|code)=)[^&\s]+", r"\1***", line)
+        sys.stderr.write("%s - %s\n" % (self.address_string(), line))
 
     def _send_text(self, status, text):
         data = text.encode("utf-8")
@@ -60,6 +64,13 @@ class Handler(BaseHTTPRequestHandler):
     def _forward(self):
         parsed = urllib.parse.urlsplit(self.path)
         if parsed.path == "/health":
+            for host, port in (("127.0.0.1", 9090), ("127.0.0.1", 18012)):
+                try:
+                    sock = socket.create_connection((host, port), timeout=2)
+                    sock.close()
+                except OSError:
+                    self._send_text(503, "upstream unavailable")
+                    return
             self._send_text(200, "ok")
             return
         if parsed.path == "/admin/cookie":
@@ -86,7 +97,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path.startswith("/mcp"):
             required = os.environ.get("MCP_TOKEN", "")
-            if required and self.headers.get("Authorization", "") != "Bearer " + required:
+            if not required:
+                self._send_text(503, "MCP_TOKEN is not configured")
+                return
+            if self.headers.get("Authorization", "") != "Bearer " + required:
                 self._send_text(401, "missing MCP bearer token")
                 return
         else:
@@ -113,6 +127,8 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             headers[key] = value
         if not parsed.path.startswith("/mcp"):
+            # Never trust a client-supplied gateway header (case-insensitive in HTTP).
+            headers = {k: v for k, v in headers.items() if k.lower() != "x-music-gateway"}
             headers["X-Music-Gateway"] = os.environ.get("MUSIC_GATEWAY_TOKEN", "music-gateway")
 
         conn = http.client.HTTPConnection(host, port, timeout=120)

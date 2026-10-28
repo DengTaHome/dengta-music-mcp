@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+: "${MUSIC_WEB_TOKEN:?MUSIC_WEB_TOKEN is required}"
+: "${MCP_TOKEN:?MCP_TOKEN is required}"
+: "${ADMIN_SECRET:?ADMIN_SECRET is required}"
+
 mkdir -p /app/server/data
 
 # Persist the player secret and NetEase cookie inside the mounted data volume.
@@ -35,4 +39,14 @@ while [ "$i" -lt 60 ]; do
   i=$((i+1)); sleep 1
 done
 echo "starting proxy on ${PORT:-10000}"
-exec python proxy.py
+python proxy.py &
+PROXY_PID=$!
+
+# Any child dying must terminate the container so Docker restarts it; a bare
+# health endpoint only proves the proxy process is alive.
+while kill -0 "$MUSIC_PID" 2>/dev/null && kill -0 "$MCP_PID" 2>/dev/null && kill -0 "$PROXY_PID" 2>/dev/null; do
+  sleep 5
+done
+echo "child exited (music=$MUSIC_PID mcp=$MCP_PID proxy=$PROXY_PID); restarting"
+kill "$MUSIC_PID" "$MCP_PID" "$PROXY_PID" 2>/dev/null || true
+exit 1
