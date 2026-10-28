@@ -65,6 +65,24 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/admin/cookie":
             self._admin_cookie()
             return
+        if parsed.path == "/login-qr.png":
+            token = urllib.parse.parse_qs(parsed.query).get("token", [""])[0]
+            if token != os.environ.get("MUSIC_WEB_TOKEN", ""):
+                self._send_text(403, "forbidden")
+                return
+            qr_path = "/app/server/data/login-qr.png"
+            if not os.path.exists(qr_path):
+                self._send_text(404, "qr not ready")
+                return
+            data = open(qr_path, "rb").read()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(data)
+            return
 
         if parsed.path.startswith("/mcp"):
             required = os.environ.get("MCP_TOKEN", "")
