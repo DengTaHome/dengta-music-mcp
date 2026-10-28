@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>music card</title>
+<style>
+  /* 官端卡片不使用 emoji 占位，整张按粉色图纸玻璃主题重排：
+     hairline、等宽小注、线图标，并跟随宿主明暗主题。 */
+  :root { color-scheme: light dark;
+    --paper: rgba(255,255,255,.62); --paper-fallback: #fdf4f2;
+    --ink: #6b4a55; --soft: #85616f; --faint: #cfb6c0;
+    --line: rgba(194,112,138,.16); --line-bright: rgba(255,255,255,.9);
+    --hot: #c2708a; --accent: #984e68; --btn: #d26e88;
+    --inner: rgba(255,255,255,.32); --glass-edge: rgba(255,255,255,.78);
+    --glass-top: rgba(255,255,255,.66); --glass-bottom: rgba(235,243,248,.30);
+    --glass-blue: rgba(191,213,228,.18); --glass-depth: rgba(87,107,121,.10);
+    --glass-shadow: rgba(73,91,105,.12); --button-glass: rgba(255,255,255,.26); }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: rgba(18,18,20,.58); --paper-fallback: #171719;
+            --ink: #f5e8ee; --soft: #c9afbd; --faint: #a08b96;
+            --line: rgba(242,241,237,.17); --line-bright: rgba(255,255,255,.25);
+            --hot: #d999ad; --accent: #e4a4ba; --btn: #c85f7d;
+            --inner: rgba(255,255,255,.07); --glass-edge: rgba(255,255,255,.24);
+            --glass-top: rgba(255,255,255,.14); --glass-bottom: rgba(73,89,100,.18);
+            --glass-blue: rgba(145,176,198,.12); --glass-depth: rgba(0,0,0,.24);
+            --glass-shadow: rgba(0,0,0,.24); --button-glass: rgba(255,255,255,.07); } }
+  html { background: transparent; min-height: 100%; }
+  * { margin: 0; box-sizing: border-box; }
+  body { font-family: 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+    position: relative; isolation: isolate; overflow: hidden;
+    background:
+      radial-gradient(120% 100% at 4% -12%, var(--glass-top), transparent 48%),
+      radial-gradient(95% 140% at 108% 112%, var(--glass-blue), transparent 58%),
+      linear-gradient(135deg, var(--paper), var(--glass-bottom));
+    color: var(--ink); padding: 12px 14px 10px; border-radius: 20px;
+    border: 1px solid var(--glass-edge);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.82),
+      inset 1px 0 0 rgba(255,255,255,.34),
+      inset 0 -1px 0 var(--glass-depth),
+      0 12px 30px var(--glass-shadow);
+    -webkit-backdrop-filter: blur(24px) saturate(1.28) contrast(1.03);
+    backdrop-filter: blur(24px) saturate(1.28) contrast(1.03);
+    /* 别钳高度：claude.ai 直接量 iframe 里 DOM 的真实高度来定卡片高（anthropics/claude-ai-mcp#69） */ }
+  body::before {
+    content: ""; position: absolute; z-index: 0; pointer-events: none;
+    inset: 1px; border-radius: 19px;
+    background: linear-gradient(112deg, rgba(255,255,255,.22), transparent 30%, transparent 72%, rgba(182,207,224,.10));
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.10);
+  }
+  body::after {
+    content: ""; position: absolute; z-index: 0; pointer-events: none;
+    width: 44%; height: 38%; right: 5%; top: -21%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(255,255,255,.52), transparent 70%);
+    filter: blur(11px); opacity: .52; transform: rotate(-8deg);
+  }
+  body > * { position: relative; z-index: 1; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9px; letter-spacing: .22em; text-transform: uppercase; color: var(--faint); }
+  .fig { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 8px; margin-bottom: 10px; border-bottom: 1px solid var(--line-bright); }
+  .fig i { font-style: normal; color: var(--hot); }
+  .card { display: flex; gap: 12px; align-items: flex-start; }
+  .cover { width: 84px; height: 84px; border-radius: 10px; flex: none; color: var(--accent); background: var(--inner) center/cover no-repeat; border: 1px solid var(--line); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .cover svg { width: 38%; height: 38%; opacity: .8; }
+  .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .meta { min-width: 0; flex: 1; }
+  .name { font-size: 16px; font-weight: 600; line-height: 1.3; letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .artist { font-size: 12px; color: var(--soft); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .line { font-size: 13.5px; color: var(--ink); margin-top: 7px; line-height: 1.5; padding-left: 9px; border-left: 2px solid var(--hot); }
+  .line .t { font-family: ui-monospace, Menlo, monospace; color: var(--faint); font-size: 10px; letter-spacing: .1em; margin-left: 6px; }
+  .note { font-size: 12px; color: var(--soft); margin-top: 5px; font-style: italic; }
+  .note[hidden], .line[hidden], button[hidden] { display: none; }
+  .lyrics { margin-top: 10px; font-size: 12px; line-height: 1.75; color: var(--soft); border-top: 1px solid var(--line); padding-top: 8px; }
+  .lyrics div { padding: 1px 0 1px 9px; border-left: 1px solid transparent; cursor: pointer; }
+  .lyrics div:hover { color: var(--ink); }
+  .lyrics div.cur { color: var(--ink); font-weight: 600; border-left-color: var(--hot); }
+  .lyrics span.tr { color: var(--faint); font-size: 11px; margin-left: 6px; }
+  .np { margin-top: 9px; } .np[hidden] { display: none; }
+  .np-bar { height: 1px; background: var(--line); }
+  .np-fill { height: 1px; width: 0%; background: var(--hot); transition: width .4s linear; position: relative; }
+  .np-fill::after { content: ""; position: absolute; right: -2px; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: var(--hot); }
+  .np-time { display: flex; justify-content: space-between; margin-top: 4px; }
+  .btns { display: flex; gap: 6px; margin-top: 9px; flex-wrap: wrap; }
+  button { font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; background: var(--button-glass); border: 1px solid var(--line-bright); border-radius: 999px; padding: 5px 11px 5px 9px; display: inline-flex; align-items: center; gap: 5px; letter-spacing: .02em;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  button svg { width: 13px; height: 13px; flex: none; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  #btn-now { background: var(--btn); border-color: var(--btn); color: #fff; } #btn-now:hover { color: #fff; opacity: .9; }
+  .status { font-size: 11px; color: var(--faint); margin-top: 6px; min-height: 13px; white-space: pre-line; }
+  .foot { display: flex; justify-content: space-between; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+
+  /* ChatGPT 直接复用 Claude 已定稿的图纸玻璃卡；这里只处理宿主安全区、显式主题
+     和 iframe 收高，不再维护第二套白底排版。 */
+  html.host-openai {
+    min-height: 0;
+    background: transparent;
+    --host-safe-top: 0px; --host-safe-left: 0px;
+    --host-safe-right: 0px; --host-safe-bottom: 0px;
+  }
+  html.host-openai[data-openai-theme="light"] {
+    --paper: rgba(255,255,255,.62); --paper-fallback: #fdf4f2;
+    --ink: #6b4a55; --soft: #85616f; --faint: #cfb6c0;
+    --line: rgba(194,112,138,.16); --line-bright: rgba(255,255,255,.9);
+    --hot: #c2708a; --accent: #984e68; --btn: #d26e88;
+    --inner: rgba(255,255,255,.32); --glass-edge: rgba(255,255,255,.78);
+    --glass-top: rgba(255,255,255,.66); --glass-bottom: rgba(235,243,248,.30);
+    --glass-blue: rgba(191,213,228,.18); --glass-depth: rgba(87,107,121,.10);
+    --glass-shadow: rgba(73,91,105,.12); --button-glass: rgba(255,255,255,.26);
+  }
+  html.host-openai[data-openai-theme="dark"] {
+    --paper: rgba(18,18,20,.58); --paper-fallback: #171719;
+    --ink: #f5e8ee; --soft: #c9afbd; --faint: #a08b96;
+    --line: rgba(242,241,237,.17); --line-bright: rgba(255,255,255,.25);
+    --hot: #d999ad; --accent: #e4a4ba; --btn: #c85f7d; --inner: rgba(255,231,237,.08);
+    --glass-edge: rgba(255,255,255,.24); --glass-top: rgba(255,255,255,.14);
+    --glass-bottom: rgba(73,89,100,.18); --glass-blue: rgba(145,176,198,.12);
+    --glass-depth: rgba(0,0,0,.24); --glass-shadow: rgba(0,0,0,.24);
+    --button-glass: rgba(255,255,255,.07);
+  }
+  html.host-openai body {
+    background: var(--paper);
+    padding: calc(12px + var(--host-safe-top)) calc(14px + var(--host-safe-right))
+             calc(10px + var(--host-safe-bottom)) calc(14px + var(--host-safe-left));
+  }
+  @media (max-width: 340px) {
+    html.host-openai .cover { width: 72px; height: 72px; }
+    html.host-openai .card { gap: 10px; }
+    html.host-openai body { padding-left: calc(10px + var(--host-safe-left)); padding-right: calc(10px + var(--host-safe-right)); }
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body { background: var(--paper-fallback); }
+  }
+</style>
+</head>
+<body>
+<div class="fig mono"><span>FIG.<i id="fig-no">01</i> · <span id="fig-kind">SONG CARD</span></span><span>TUTOOTH · MUSIC</span></div>
+<div class="card">
+  <div class="cover" id="cover"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></div>
+  <div class="meta">
+    <div class="name" id="name">…</div>
+    <div class="artist" id="artist"></div>
+    <div class="line" id="line" hidden></div>
+    <div class="note" id="note" hidden></div>
+    <div class="btns">
+      <button id="btn-queue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M4 12h10M4 17h6"/><path d="M18 12v6M15 15h6"/></svg><span>插进接下来播</span></button>
+      <button id="btn-now"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M7 5v14l11-7z"/></svg><span>立刻开播</span></button>
+      <button id="btn-player" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 16 0v4"/><path d="M4 12v4a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 2z"/><path d="M20 12v4a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2z"/></svg><span>打开播放器</span></button>
+      <button id="btn-lyrics" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M5 7h14M5 12h10M5 17h12"/></svg><span id="btn-lyrics-label">歌词</span></button>
+    </div>
+    <div class="np" id="np" hidden>
+      <div class="np-bar"><div class="np-fill" id="np-fill"></div></div>
+      <div class="np-time mono"><span id="np-cur">0:00</span><span id="np-tot">0:00</span></div>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+<div class="lyrics" id="lyrics" hidden></div>
+<div class="foot mono"><span>MUSIC-MCP</span><span>READ WITH A STRAIGHT EDGE</span></div>
+<script>
+(function () {
+  "use strict";
+  var seq = 0, pending = {}, song = null;
+  function cssPx(value) {
+    if (typeof value === "number" && isFinite(value)) return Math.max(0, value) + "px";
+    if (typeof value === "string" && /^\d+(?:\.\d+)?(?:px)?$/.test(value))
+      return value.endsWith("px") ? value : value + "px";
+    return "0px";
+  }
+  function applyOpenAiHost(globals) {
+    var api = window.openai;
+    if (!api) return false;
+    var root = document.documentElement;
+    root.classList.add("host-openai");
+    var theme = (globals && globals.theme) || api.theme;
+    if (theme === "light" || theme === "dark") root.dataset.openaiTheme = theme;
+    var safe = (globals && globals.safeArea) || api.safeArea || {};
+    var inset = safe.insets || safe;
+    root.style.setProperty("--host-safe-top", cssPx(inset.top));
+    root.style.setProperty("--host-safe-left", cssPx(inset.left));
+    root.style.setProperty("--host-safe-right", cssPx(inset.right));
+    root.style.setProperty("--host-safe-bottom", cssPx(inset.bottom));
+    return true;
+  }
+  applyOpenAiHost();
+  window.addEventListener("openai:set_globals", function (event) {
+    applyOpenAiHost(event.detail && (event.detail.globals || event.detail));
+    if (!song && window.openai && window.openai.toolOutput) render(window.openai.toolOutput);
+    reportSize();
+  });
+  function rpc(method, params) {
+    return new Promise(function (resolve, reject) {
+      var id = "app-" + (++seq);
+      pending[id] = { ok: resolve, no: reject };
+      window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params || {} }, "*");
+    });
+  }
+  window.addEventListener("message", function (ev) {
+    var m = ev.data;
+    if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id && pending[m.id] && !m.method) {        // response to our request
+      // （!m.method 防卫：带 method 的是请求不是响应——同窗测试环境里会听到
+      //   自己发出去的请求回声，别把它误当空响应吞掉）
+      var p = pending[m.id]; delete pending[m.id];
+      if (m.error) p.no(m.error); else p.ok(m.result);
+      return;
+    }
+    if (m.method === "ui/notifications/tool-result" && m.params) {
+      render((m.params.structuredContent) || (m.params.result && m.params.result.structuredContent));
+    } else if (m.method === "ui/notifications/tool-input" && m.params && m.params.arguments) {
+      var a = m.params.arguments;
+      if (!song && (a.name || a.query)) byId("name").textContent = a.name || a.query;
+    }
+  });
+  function byId(i) { return document.getElementById(i); }
+  function mmss(t) { t = Math.max(0, Math.round(t)); return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0"); }
+  function render(sc) {
+    sc = sc && (sc.structuredContent || (sc.result && sc.result.structuredContent) || sc);
+    if (!sc || !sc.song) return;
+    song = sc.song;
+    byId("fig-kind").textContent = sc.kind === "lyric" ? "LYRIC CARD" : "SONG CARD";
+    byId("fig-no").textContent = sc.kind === "lyric" ? "02" : "01";
+    setTimeout(function () { try { npPoll(); } catch (e) {} }, 300);
+    byId("name").textContent = song.name || "";
+    byId("artist").textContent = song.artist + (song.album ? " · " + song.album : "");
+    if (song.cover) {
+      var img = new Image();
+      img.onload = function () { var c = byId("cover"); c.innerHTML = ""; c.appendChild(img); };
+      img.src = String(song.cover).replace(/^http:/, "https:") + (String(song.cover).indexOf("?") < 0 ? "?param=200y200" : "");
+    }
+    var lineEl = byId("line");
+    if (sc.kind === "lyric" && sc.lyric && sc.lyric.line) {
+      var l = sc.lyric.line;
+      lineEl.innerHTML = "";
+      lineEl.appendChild(document.createTextNode("「" + l.text + "」" + (l.trans ? " " + l.trans : "")));
+      var t = document.createElement("span"); t.className = "t"; t.textContent = mmss(sc.lyric.at);
+      lineEl.appendChild(t);
+      lineEl.hidden = false;
+    }
+    if (sc.note) { byId("note").textContent = sc.note; byId("note").hidden = false; }
+    if (sc.player_url) {
+      var pb = byId("btn-player");
+      pb.hidden = false;
+      pb.onclick = function () { rpc("ui/open-link", { url: sc.player_url }); };
+    }
+    // 滚动歌词：
+    // 点「歌词」展开整篇，面板内滚动；歌词卡分享的那句高亮并居中
+    if (sc.lyrics && sc.lyrics.length) {
+      var panel = byId("lyrics");
+      panel.innerHTML = "";
+      var curAt = (sc.kind === "lyric" && sc.lyric) ? sc.lyric.at : null;
+      var curEl = null;
+      sc.lyrics.forEach(function (l) {
+        if (!l.x) return;
+        var d = document.createElement("div");
+        d.dataset.t = l.t;   // 跟唱高亮用：每行记住自己的时间戳
+        d.appendChild(document.createTextNode(l.x));
+        if (l.tr) { var s = document.createElement("span"); s.className = "tr"; s.textContent = l.tr; d.appendChild(s); }
+        if (curAt !== null && Math.abs(l.t - curAt) < 0.5) { d.className = "cur"; curEl = d; }
+        d.title = "点一下，跳到这句";                       // 9-02 安可：官端卡片上的歌词能不能跳转
+        d.addEventListener("click", function () { seekTo(l.t, l.x); });
+        panel.appendChild(d);
+      });
+      var lb = byId("btn-lyrics");
+      lb.hidden = false;
+      lb.onclick = function () {
+        panel.hidden = !panel.hidden;
+        byId("btn-lyrics-label").textContent = panel.hidden ? "歌词" : "收起";
+      };
+    }
+  }
+  function seekTo(t, text) {
+    if (!song) return;
+    byId("status").textContent = "跳到 " + mmss(t) + " …";
+    // 9-03 00:22 安可：「进度条也跟着跳」——不等心跳，先把指针拨过去；1.5s / 4s 后再去核对
+    np.basePos = Number(t) || 0; np.baseAt = performance.now(); np.pos = np.basePos; np.playing = true; np.ok = np.ok || !!np.dur;
+    npRender();
+    setTimeout(function () { try { npPoll(); } catch (e) {} }, 1500);
+    setTimeout(function () { try { npPoll(); } catch (e) {} }, 4000);
+    rpc("tools/call", { name: "song_share", arguments: { song_id: String(song.songId), mode: "now", at_seconds: Number(t) || 0 } })
+      .then(function () { byId("status").textContent = "从 " + mmss(t) + " 开始放：" + (text || ""); })
+      .catch(function (e) { byId("status").textContent = "没跳成：" + (e && e.message || ""); });
+  }
+  function play(mode, label) {
+    if (!song) { byId("status").textContent = "还没拿到歌曲信息…"; return; }
+    var btns = document.querySelectorAll("button");
+    btns.forEach(function (b) { b.disabled = true; });
+    byId("status").textContent = "…";
+    rpc("tools/call", { name: "song_share", arguments: { song_id: String(song.songId), mode: mode } })
+      .then(function (r) {
+        var txt = (r && r.content && r.content[0] && r.content[0].text) || "";
+        byId("status").textContent = txt || (label + " · 好了");
+      })
+      .catch(function (e) { byId("status").textContent = "没成功：" + (e && e.message || ""); })
+      .then(function () { btns.forEach(function (b) { b.disabled = false; }); });
+  }
+  byId("btn-queue").addEventListener("click", function () { play("queue", "已插队"); });
+  byId("btn-now").addEventListener("click", function () { play("now", "已开播"); });
+  // 进度条＋跟唱：播放器每 5 秒发送一次心跳 →
+  // 服务端 /music/now → MCP 的 music://now 资源 → 这里轮询。只在卡片这首正在播时亮，
+  // 本地 1s 插值让指针平滑走；歌词面板开着时顺带点亮当前行＝真·跟唱。
+  var np = { pos: 0, dur: 0, playing: false, ok: false, fails: 0 };
+  function npRender() {
+    var box = byId("np");
+    if (!np.ok || !np.dur) { box.hidden = true; return; }
+    box.hidden = false;
+    byId("np-fill").style.width = Math.min(100, np.pos / np.dur * 100) + "%";
+    byId("np-cur").textContent = mmss(np.pos);
+    byId("np-tot").textContent = mmss(np.dur);
+    var panel = byId("lyrics");
+    if (!panel.hidden) {
+      var rows = panel.children, want = null;
+      for (var i = 0; i < rows.length; i++) {
+        var t = parseFloat(rows[i].dataset.t);
+        if (!isNaN(t) && t <= np.pos) want = rows[i];
+      }
+      for (var j = 0; j < rows.length; j++) rows[j].classList.toggle("cur", rows[j] === want);
+    }
+  }
+  function npPoll() {
+    if (!song) return;
+    rpc("resources/read", { uri: "music://now" }).then(function (res) {
+      np.fails = 0;
+      var d = {};
+      try { d = JSON.parse(res.contents[0].text); } catch (e) {}
+      if (d.ok && String(d.songId) === String(song.songId)) {
+        np.ok = true; np.dur = d.duration || 0; np.playing = !!d.playing;
+        // 消除约 0.5–0.7 秒的实测滞后：位置要加回服务端存龄 age，
+        // 再补 0.35s 链路半程（上报+轮询往返），不然高亮永远追着唱
+        np.basePos = (d.position || 0) + (np.playing ? (d.age || 0) + 0.35 : 0);
+        np.baseAt = performance.now();
+        np.pos = np.basePos;
+      } else { np.ok = false; }
+      npRender();
+    }).catch(function () { np.fails += 1; if (np.fails >= 3) { clearInterval(npTimer); } });
+  }
+  var npTimer = setInterval(npPoll, 5000);
+  // 插值改真实时钟：每 0.4s 按毫秒推算，不再整秒跳
+  setInterval(function () {
+    if (np.ok && np.playing) {
+      np.pos = np.basePos + (performance.now() - np.baseAt) / 1000;
+      npRender();
+    }
+  }, 400);
+
+  // 身高播报：claude.ai 直接量 DOM，但守规矩的宿主听 size-changed 通知——两头都照顾
+  function reportSize() {
+    try {
+      var height = Math.ceil(Math.max(document.body.scrollHeight, document.body.getBoundingClientRect().height));
+      window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/size-changed",
+        params: { height: height } }, "*");
+      if (window.openai && typeof window.openai.notifyIntrinsicHeight === "function") {
+        try { window.openai.notifyIntrinsicHeight({ height: height }); }
+        catch (_objectShape) { try { window.openai.notifyIntrinsicHeight(height); } catch (_numberShape) {} }
+      }
+    } catch (e) { /* 无伤 */ }
+  }
+  if (window.ResizeObserver) { new ResizeObserver(reportSize).observe(document.body); }
+  window.addEventListener("load", reportSize);
+  if (window.openai && window.openai.toolOutput) render(window.openai.toolOutput);
+  rpc("ui/initialize", { protocolVersion: "2026-01-26", appInfo: { name: "music card", version: "1.0.0" } })
+    .then(function (res) {
+      // 握手回执：MCP 惯例 initialize 后要跟一条 initialized 通知，宿主才开始推数据
+      // （9-01 真机首测：漏了这条，卡片渲染成空壳「…」）
+      window.parent.postMessage({ jsonrpc: "2.0", method: "ui/notifications/initialized" }, "*");
+      // 有的宿主把触发本视图的工具结果直接塞在 initialize 结果里
+      var tr = res && (res.toolResult || res.result);
+      if (tr && tr.structuredContent) render(tr.structuredContent);
+    })
+    .catch(function () { /* 不支持也不至于白屏：等 tool-result 通知 */ });
+})();
+</script>
+</body>
+</html>

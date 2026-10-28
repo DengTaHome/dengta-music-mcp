@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Small reverse proxy: player UI on /, MCP on /mcp, admin cookie export."""
+import http.client
+import json
+import os
+import sys
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+def target_for(path):
+    if path.startswith("/mcp"):
+        return ("127.0.0.1", 18012)
+    return ("127.0.0.1", 9090)
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+
+    def _send_text(self, status, text, content_type="text/plain; charset=utf-8"):
+        data = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _admin_cookie(self):
+        expected = os.environ.get("ADMIN_SECRET", "")
+        if not expected or self.headers.get("X-Admin-Secret", "") != expected:
+            self._send_text(403, "forbidden")
+            return
+        path = "/app/server/.netease_cred"
+        if not os.path.exists(path):
+            self._send_text(404, "cookie-not-set")
+            return
+        raw = open(path, encoding="utf-8").read().strip()
+        if raw.startswith("MUSIC_U="):
+            raw = raw.split("=", 1)[1]
+        self._send_text(200, raw, "text/plain; charset=utf-8")
+
+    def _forward(self):
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path == "/health":
+            self._send_text(200, "ok")
+            return
+        if parsed.path == "/admin/cookie":
+            self._admin_cookie()
+            return
+        if parsed.path.startswith("/mcp"):
+            required = os.environ.get("MCP_TOKEN", "")
+            if required and self.headers.get("Authorization", "") != "Bearer " + required:
+                self._send_text(401, "missing MCP bearer token")
+                return
+        host, port = target_for(parsed.path)
+        length = int(self.headers.get("Content-Length") or "0")
+        body = self.rfile.read(length) if length else None
+        headers = {}
+        for key, value in self.headers.items():
+            if key.lower() in ("host", "connection", "content-length", "transfer-encoding"):
+                continue
+            headers[key] = value
+        conn = http.client.HTTPConnection(host, port, timeout=120)
+        try:
+            conn.request(self.command, self.path, body=body, headers=headers)
+            resp = conn.getresponse()
+            self.send_response(resp.status)
+            for key, value in resp.getheaders():
+                if key.lower() in ("connection", "transfer-encoding", "content-length", "keep-alive"):
+                    continue
+                self.send_header(key, value)
+            self.send_header("Connection", "close")
+            self.end_headers()
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except Exception as error:
+            sys.stderr.write("proxy error: %s\n" % error)
+            try:
+                self._send_text(502, "bad gateway")
+            except Exception:
+                pass
+        finally:
+            conn.close()
+
+    do_GET = _forward
+    do_POST = _forward
+    do_PUT = _forward
+    do_PATCH = _forward
+    do_DELETE = _forward
+    do_HEAD = _forward
+    do_OPTIONS = _forward
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "10000"))
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
