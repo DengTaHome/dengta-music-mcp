@@ -1,8 +1,7 @@
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    MUSIC_BASE=http://127.0.0.1:9090 \
-    MUSIC_GATEWAY_TOKEN=music-gateway
+    MUSIC_BASE=http://127.0.0.1:9090
 
 WORKDIR /app
 COPY . /app

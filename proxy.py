@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Reverse proxy: gated player on /, MCP on /mcp, admin cookie export."""
 import http.client
+import hmac
 import re
 import socket
 import os
@@ -37,13 +38,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(data)
 
     def _admin_cookie(self):
         expected = os.environ.get("ADMIN_SECRET", "")
-        if not expected or self.headers.get("X-Admin-Secret", "") != expected:
+        provided = self.headers.get("X-Admin-Secret", "")
+        if not expected or not hmac.compare_digest(provided, expected):
             self._send_text(403, "forbidden")
             return
         path = "/app/server/data/.netease_cred"
@@ -58,8 +61,9 @@ class Handler(BaseHTTPRequestHandler):
     def _player_allowed(self, parsed):
         expected = os.environ.get("MUSIC_WEB_TOKEN", "")
         if not expected:
-            return True
-        return parse_cookies(self.headers.get("Cookie", "")).get("music_web") == expected
+            return False
+        provided = parse_cookies(self.headers.get("Cookie", "")).get("music_web", "")
+        return hmac.compare_digest(provided, expected)
 
     def _forward(self):
         parsed = urllib.parse.urlsplit(self.path)
@@ -78,7 +82,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/login-qr.png":
             token = urllib.parse.parse_qs(parsed.query).get("token", [""])[0]
-            if token != os.environ.get("MUSIC_WEB_TOKEN", ""):
+            expected = os.environ.get("MUSIC_WEB_TOKEN", "")
+            if not expected or not hmac.compare_digest(token, expected):
                 self._send_text(403, "forbidden")
                 return
             qr_path = "/app/server/data/login-qr.png"
@@ -100,14 +105,18 @@ class Handler(BaseHTTPRequestHandler):
             if not required:
                 self._send_text(503, "MCP_TOKEN is not configured")
                 return
-            if self.headers.get("Authorization", "") != "Bearer " + required:
+            provided = self.headers.get("Authorization", "")
+            if not hmac.compare_digest(provided, "Bearer " + required):
                 self._send_text(401, "missing MCP bearer token")
                 return
         else:
             expected = os.environ.get("MUSIC_WEB_TOKEN", "")
-            if expected and not self._player_allowed(parsed):
+            if not expected:
+                self._send_text(503, "MUSIC_WEB_TOKEN is not configured")
+                return
+            if not self._player_allowed(parsed):
                 query = urllib.parse.parse_qs(parsed.query)
-                if parsed.path == "/" and query.get("token", [""])[0] == expected:
+                if parsed.path == "/" and hmac.compare_digest(query.get("token", [""])[0], expected):
                     self.send_response(302)
                     self.send_header("Location", "/#login")
                     self.send_header("Set-Cookie", "music_web=%s; Path=/; HttpOnly; Secure; SameSite=Lax" % expected)
@@ -118,8 +127,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_text(401, "open this player with its access link")
                 return
 
+        gateway_token = os.environ.get("MUSIC_GATEWAY_TOKEN", "")
+        if not parsed.path.startswith("/mcp") and not gateway_token:
+            self._send_text(503, "MUSIC_GATEWAY_TOKEN is not configured")
+            return
         host, port = target_for(parsed.path)
         length = int(self.headers.get("Content-Length") or "0")
+        if length > 64 * 1024 * 1024:
+            self._send_text(413, "request body too large")
+            return
         body = self.rfile.read(length) if length else None
         headers = {}
         for key, value in self.headers.items():
@@ -129,7 +145,7 @@ class Handler(BaseHTTPRequestHandler):
         if not parsed.path.startswith("/mcp"):
             # Never trust a client-supplied gateway header (case-insensitive in HTTP).
             headers = {k: v for k, v in headers.items() if k.lower() != "x-music-gateway"}
-            headers["X-Music-Gateway"] = os.environ.get("MUSIC_GATEWAY_TOKEN", "music-gateway")
+            headers["X-Music-Gateway"] = gateway_token
 
         conn = http.client.HTTPConnection(host, port, timeout=120)
         try:
